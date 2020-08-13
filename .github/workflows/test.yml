@@ -1,0 +1,32 @@
+name: testing
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    name: Unit-Testing
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ^1.13
+      id: go
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+
+    - name: Running Tests
+      run: go test -v ./...
+
+    - name: Send notification to telegram bot 
+      uses: yanzay/notify-telegram@v0.1.0
+      if: always()
+      with:
+        chat: ${{ secrets.telegram_chat }} # user id or channel name secret
+        token: ${{ secrets.telegram_token }} # token secret
+        status: ${{ job.status }} # do not modify this line
