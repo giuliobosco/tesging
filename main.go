@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +23,16 @@ var articleList = []article{
 
 func getAllArticles() []article {
 	return articleList
+}
+
+func getArticleByID(id int) (*article, error) {
+	for _, a := range articleList {
+		if a.ID == id {
+			return &a, nil
+		}
+	}
+
+	return nil, errors.New("Article not found")
 }
 
 func main() {
@@ -43,10 +55,23 @@ func initializeRoutes() {
 	router.GET("/ping", pingEndpoint)
 	// Handle the index route
 	router.GET("/", showIndexPage)
+	// Handle GET requests at /article/view/id
+	router.GET("/article/view/:article_id", getArticle)
+}
+
+func render(c *gin.Context, data gin.H, templateName string) {
+	switch c.Request.Header.Get("Accept") {
+	case "application/json":
+		c.JSON(http.StatusOK, data["payload"])
+	case "application/xml":
+		c.XML(http.StatusOK, data["payload"])
+	default:
+		c.HTML(http.StatusOK, templateName, data)
+	}
 }
 
 func pingEndpoint(c *gin.Context) {
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"message": "pong",
 	})
 }
@@ -55,15 +80,23 @@ func showIndexPage(c *gin.Context) {
 	articles := getAllArticles()
 
 	// Call the HTML method of the Context to render a template
-	c.HTML(
-		// Set the HTTP status to 200 (OK)
-		http.StatusOK,
-		// Use the index.html template
-		"index.html",
-		// Pass the data that the page uses (in this case, 'title')
-		gin.H{
-			"title":   "Home Page",
-			"payload": articles,
-		},
-	)
+	render(c, gin.H{
+		"title":   "Home Page",
+		"payload": articles,
+	}, "index.html")
+}
+
+func getArticle(c *gin.Context) {
+	if articleID, err := strconv.Atoi(c.Param("article_id")); err == nil {
+		if article, err := getArticleByID(articleID); err == nil {
+			render(c, gin.H{
+				"title":   article.Title,
+				"payload": article,
+			}, "article.html")
+		} else {
+			c.AbortWithError(http.StatusNotFound, err)
+		}
+	} else {
+		c.AbortWithStatus(http.StatusNotFound)
+	}
 }
