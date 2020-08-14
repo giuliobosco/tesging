@@ -2,13 +2,92 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
+var tmpArticleList []article
+
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+
+	os.Exit(m.Run())
+}
+
+func getRouter(withTemplates bool) *gin.Engine {
+	r := gin.Default()
+
+	if withTemplates {
+		r.LoadHTMLGlob("templates/*")
+	}
+
+	return r
+}
+
+func testHTTPResponse(t *testing.T, r *gin.Engine, req *http.Request, f func(w *httptest.ResponseRecorder) bool) {
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if !f(w) {
+		t.Fail()
+	}
+}
+
+func saveLists() {
+	tmpArticleList = articleList
+}
+
+func restoreLists() {
+	articleList = tmpArticleList
+}
+
+func TestGetAllArticel(t *testing.T) {
+	alist := getAllArticles()
+
+	if len(alist) != len(articleList) {
+		t.Fail()
+	}
+
+	for i, v := range alist {
+		if v.Content != articleList[i].Content ||
+			v.ID != articleList[i].ID ||
+			v.Title != articleList[i].Title {
+			t.Fail()
+			break
+		}
+	}
+}
+
+func TestShowIndexPageUnauthenticated(t *testing.T) {
+	r := getRouter(true)
+
+	r.GET("/", showIndexPage)
+
+	req, _ := http.NewRequest("GET", "/", nil)
+
+	testHTTPResponse(t, r, req, func(w *httptest.ResponseRecorder) bool {
+		statusOK := w.Code == http.StatusOK
+
+		p, err := ioutil.ReadAll(w.Body)
+		pageOK := err == nil && strings.Index(string(p), "<title>Home Page</title>") > 0
+
+		return statusOK && pageOK
+	})
+}
+
 func TestPingRoute(t *testing.T) {
-	ts := httptest.NewServer(setupServer())
+	r := getRouter(true)
+
+	r.GET("/ping", pingEndpoint)
+
+	ts := httptest.NewServer(r)
 
 	defer ts.Close()
 

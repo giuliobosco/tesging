@@ -1,5 +1,16 @@
-{{ template "header.html" }}
+<!--index.html-->
+
+<!--Embed the header.html template at this location-->
+{{ template "header.html" .}}
 
 <h1>Hello Gin!</h1>
 
-{{ template "footer.html" }}
+{{ range .payload }} 
+    <a href="/article/view/{{ .ID }}">
+        <h2>{{ .Title }}</h2>
+    </a>
+    <p>{{ .Content }}</p>
+{{ end }}
+
+<!--Embed the footer.html template at this location-->
+{{ template "footer.html" .}}
