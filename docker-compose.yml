@@ -1,0 +1,11 @@
+version: '3'
+services:
+  go:
+    image: golang:1.13
+    container_name: tesging
+    volumes:
+      - .:/tesging
+    working_dir: /tesging
+    command: ./build.sh
+    ports:
+      - 8080:8080
