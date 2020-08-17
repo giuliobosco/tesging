@@ -7,7 +7,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +17,7 @@ import (
 )
 
 var tmpArticleList []article
+var tmpUserList []user
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
@@ -44,10 +47,13 @@ func testHTTPResponse(t *testing.T, r *gin.Engine, req *http.Request, f func(w *
 
 func saveLists() {
 	tmpArticleList = articleList
+	tmpUserList = userList
+
 }
 
 func restoreLists() {
 	articleList = tmpArticleList
+	userList = tmpUserList
 }
 
 func TestGetAllArticel(t *testing.T) {
@@ -172,4 +178,218 @@ func TestArticleXML(t *testing.T) {
 
 		return err == nil && a.ID == 1 && len(a.Title) >= 0 && statusOK
 	})
+}
+
+func TestUsernameAvailability(t *testing.T) {
+	saveLists()
+
+	if !isUsernameAvalilable("newusername") {
+		t.Fail()
+	}
+
+	if isUsernameAvalilable("user1") {
+		t.Fail()
+	}
+
+	registerNewUser("newuser", "newpass")
+
+	if isUsernameAvalilable("newuser") {
+		t.Fail()
+	}
+
+	restoreLists()
+}
+
+func TestValidUserRegistration(t *testing.T) {
+	saveLists()
+
+	u, err := registerNewUser("usernew", "userpass")
+
+	if err != nil || u.Username == "" {
+		t.Fail()
+	}
+
+	restoreLists()
+}
+
+func TestInvalidUserRegistration(t *testing.T) {
+	saveLists()
+
+	u, err := registerNewUser("user1", "pass1")
+
+	if err == nil || u != nil {
+		t.Fail()
+	}
+
+	u, err = registerNewUser("newuser", "")
+
+	if err == nil || u != nil {
+		t.Fail()
+	}
+
+	restoreLists()
+}
+
+func getLoginPOSTPayload() string {
+	params := url.Values{}
+	params.Add("username", "user1")
+	params.Add("password", "pass1")
+
+	return params.Encode()
+}
+
+func getRegistrationPOSTPayload() string {
+	params := url.Values{}
+	params.Add("username", "u1")
+	params.Add("password", "p1")
+
+	return params.Encode()
+}
+
+func TestShowRegistrationPageUnauthenticated(t *testing.T) {
+	r := getRouter(true)
+
+	r.GET("/u/register", showRegistrationPage)
+
+	req, _ := http.NewRequest("GET", "/u/register", nil)
+
+	testHTTPResponse(t, r, req, func(w *httptest.ResponseRecorder) bool {
+		statusOK := w.Code == http.StatusOK
+
+		p, err := ioutil.ReadAll(w.Body)
+		pageOK := err == nil && strings.Index(string(p), "<title>Register</title>") > 0
+
+		return statusOK && pageOK
+	})
+}
+
+func TestRegisterUnauthenticated(t *testing.T) {
+	saveLists()
+	w := httptest.NewRecorder()
+
+	r := getRouter(true)
+
+	r.POST("/u/register", register)
+
+	registrationPayload := getRegistrationPOSTPayload()
+	req, _ := http.NewRequest("POST", "/u/register", strings.NewReader(registrationPayload))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(registrationPayload)))
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fail()
+	}
+
+	p, err := ioutil.ReadAll(w.Body)
+	if err != nil || strings.Index(string(p), "<title>Successful registration &amp; Login</title>") < 0 {
+		t.Fail()
+	}
+
+	restoreLists()
+}
+
+func TestRegisterUnauthenticatedUnavailableUsername(t *testing.T) {
+	saveLists()
+	w := httptest.NewRecorder()
+
+	r := getRouter(true)
+
+	r.POST("/u/register", register)
+
+	registrationPayload := getLoginPOSTPayload()
+	req, _ := http.NewRequest("POST", "/u/register", strings.NewReader(registrationPayload))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(registrationPayload)))
+
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fail()
+	}
+	restoreLists()
+}
+
+func TestUserValidity(t *testing.T) {
+	if !isUserValid("user1", "pass1") {
+		t.Fail()
+	}
+
+	if isUserValid("user2", "pass1") {
+		t.Fail()
+	}
+
+	if isUserValid("user1", "") {
+		t.Fail()
+	}
+
+	if isUserValid("", "pass1") {
+		t.Fail()
+	}
+
+	if isUserValid("User1", "pass1") {
+		t.Fail()
+	}
+}
+
+func TestShowLoginPageUnauthenticated(t *testing.T) {
+	r := getRouter(true)
+
+	r.GET("/u/login", showLoginPage)
+
+	req, _ := http.NewRequest("GET", "/u/login", nil)
+
+	testHTTPResponse(t, r, req, func(w *httptest.ResponseRecorder) bool {
+		statusOK := w.Code == http.StatusOK
+
+		p, err := ioutil.ReadAll(w.Body)
+		pageOK := err == nil && strings.Index(string(p), "<title>Login</title>") > 0
+
+		return statusOK && pageOK
+	})
+}
+
+func TestLoginUnauthenticated(t *testing.T) {
+	saveLists()
+	w := httptest.NewRecorder()
+	r := getRouter(true)
+
+	r.POST("/u/login", performLogin)
+
+	loginPayload := getLoginPOSTPayload()
+	req, _ := http.NewRequest("POST", "/u/login", strings.NewReader(loginPayload))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(loginPayload)))
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fail()
+	}
+
+	p, err := ioutil.ReadAll(w.Body)
+	if err != nil || strings.Index(string(p), "<title>Successful Login</title>") < 0 {
+		t.Fail()
+	}
+	restoreLists()
+}
+
+func TestLoginUnauthenticatedIncorrectCredentials(t *testing.T) {
+	saveLists()
+	w := httptest.NewRecorder()
+	r := getRouter(true)
+
+	r.POST("/u/login", performLogin)
+
+	loginPayload := getRegistrationPOSTPayload()
+	req, _ := http.NewRequest("POST", "/u/login", strings.NewReader(loginPayload))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(loginPayload)))
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fail()
+	}
+	restoreLists()
 }
