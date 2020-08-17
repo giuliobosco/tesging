@@ -85,6 +85,14 @@ func generateSessionToken() string {
 	return strconv.FormatInt(rand.Int63(), 16)
 }
 
+func createNewArticle(title, content string) (*article, error) {
+	a := article{ID: len(articleList) + 1, Title: title, Content: content}
+
+	articleList = append(articleList, a)
+
+	return &a, nil
+}
+
 func main() {
 
 	// Set the router as the default one provided by Gin
@@ -108,14 +116,19 @@ func initializeRoutes() {
 
 	userRoutes := router.Group("/u")
 	{
-		userRoutes.GET("/register", showRegistrationPage)
-		userRoutes.POST("/register", register)
-		userRoutes.GET("/login", showLoginPage)
-		userRoutes.POST("/login", performLogin)
-		userRoutes.GET("/logout", logout)
+		userRoutes.GET("/register", ensureNotLoggedIn(), showRegistrationPage)
+		userRoutes.POST("/register", ensureNotLoggedIn(), register)
+		userRoutes.GET("/login", ensureNotLoggedIn(), showLoginPage)
+		userRoutes.POST("/login", ensureNotLoggedIn(), performLogin)
+		userRoutes.GET("/logout", ensureLoggedIn(), logout)
 	}
-	// Handle GET requests at /article/view/id
-	router.GET("/article/view/:article_id", getArticle)
+
+	articleRoutes := router.Group("/article")
+	{
+		articleRoutes.GET("/view/:article_id", getArticle)
+		articleRoutes.GET("/create", ensureLoggedIn(), showArticleCreationPage)
+		articleRoutes.POST("/create", ensureLoggedIn(), createArticle)
+	}
 }
 
 func render(c *gin.Context, data gin.H, templateName string) {
@@ -214,4 +227,61 @@ func logout(c *gin.Context) {
 	c.SetCookie("token", "", -1, "", "", false, true)
 
 	c.Redirect(http.StatusTemporaryRedirect, "/")
+}
+
+func showArticleCreationPage(c *gin.Context) {
+	render(c, gin.H{"title": "Create New Article"}, "create-article.html")
+}
+
+func createArticle(c *gin.Context) {
+	title := c.PostForm("title")
+	content := c.PostForm("content")
+
+	if a, err := createNewArticle(title, content); err == nil {
+		render(c, gin.H{
+			"title":   "Submission Successful",
+			"payload": a,
+		}, "submission-successful.html")
+	} else {
+		c.AbortWithStatus(http.StatusBadRequest)
+	}
+}
+
+func ensureLoggedIn() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		loggedInInterface, _ := c.Get("is_logged_in")
+
+		if loggedInInterface == nil {
+			c.AbortWithStatus(http.StatusUnauthorized)
+		}
+
+		loggedIn := loggedInInterface.(bool)
+		if !loggedIn {
+			c.AbortWithStatus(http.StatusUnauthorized)
+		}
+	}
+}
+
+func ensureNotLoggedIn() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		loggedInInterface, _ := c.Get("is_logged_in")
+		if loggedInInterface == nil {
+			return
+		}
+
+		loggedIn := loggedInInterface.(bool)
+		if loggedIn {
+			c.AbortWithStatus(http.StatusUnauthorized)
+		}
+	}
+}
+
+func setUserStatus() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if token, err := c.Cookie("token"); err == nil || token != "" {
+			c.Set("is_logged_in", true)
+		} else {
+			c.Set("is_logged_in", false)
+		}
+	}
 }

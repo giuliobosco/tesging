@@ -30,6 +30,7 @@ func getRouter(withTemplates bool) *gin.Engine {
 
 	if withTemplates {
 		r.LoadHTMLGlob("templates/*")
+		r.Use(setUserStatus())
 	}
 
 	return r
@@ -392,4 +393,135 @@ func TestLoginUnauthenticatedIncorrectCredentials(t *testing.T) {
 		t.Fail()
 	}
 	restoreLists()
+}
+
+func TestCreateNewArticle(t *testing.T) {
+	originalLength := len(getAllArticles())
+
+	a, err := createNewArticle("New test title", "New test Content")
+
+	allArticles := getAllArticles()
+	newLength := len(allArticles)
+
+	if err != nil || newLength != originalLength+1 ||
+		a.Title != "New test title" || a.Content != "New test Content" {
+		t.Fail()
+	}
+}
+
+func getArticlePOSTPayload() string {
+	params := url.Values{}
+	params.Add("title", "Test Article Title")
+	params.Add("content", "Test Article Content")
+
+	return params.Encode()
+}
+
+func TestArticleCreationAuthenticated(t *testing.T) {
+	saveLists()
+
+	w := httptest.NewRecorder()
+
+	r := getRouter(true)
+
+	http.SetCookie(w, &http.Cookie{Name: "token", Value: "123"})
+
+	r.POST("/article/create", createArticle)
+
+	articlePayload := getArticlePOSTPayload()
+	req, _ := http.NewRequest("POST", "/article/create", strings.NewReader(articlePayload))
+	req.Header = http.Header{"Cookie": w.HeaderMap["Set-Cookie"]}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Length", strconv.Itoa(len(articlePayload)))
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fail()
+	}
+
+	p, err := ioutil.ReadAll(w.Body)
+
+	if err != nil || strings.Index(string(p), "<title>Submission Successful</title>") < 0 {
+		t.Fail()
+	}
+	restoreLists()
+}
+
+func testMiddlewareRequest(t *testing.T, r *gin.Engine, expectedHTTPCode int) {
+	req, _ := http.NewRequest("GET", "/", nil)
+
+	testHTTPResponse(t, r, req, func(w *httptest.ResponseRecorder) bool {
+		return w.Code == expectedHTTPCode
+	})
+}
+
+func setLoggedIn(b bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("is_logged_in", b)
+	}
+}
+
+func TestEnsureLoggedInUnauthtenticated(t *testing.T) {
+	r := getRouter(false)
+	r.GET("/", setLoggedIn(false), ensureLoggedIn(), func(c *gin.Context) {
+		t.Fail()
+	})
+
+	testMiddlewareRequest(t, r, http.StatusUnauthorized)
+}
+
+func TestEnsureLoggedInAuthtenticated(t *testing.T) {
+	r := getRouter(false)
+	r.GET("/", setLoggedIn(true), ensureLoggedIn(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	testMiddlewareRequest(t, r, http.StatusOK)
+}
+
+func TestEnsureNotLoggedInAuthenticated(t *testing.T) {
+	r := getRouter(false)
+	r.GET("/", setLoggedIn(false), ensureNotLoggedIn(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	testMiddlewareRequest(t, r, http.StatusOK)
+}
+
+func TestSetUserStatusAuthenticated(t *testing.T) {
+	r := getRouter(false)
+
+	r.GET("/", setUserStatus(), func(c *gin.Context) {
+		loggedInInterface, exists := c.Get("is_logged_in")
+
+		if !exists || !loggedInInterface.(bool) {
+			t.Fail()
+		}
+
+		w := httptest.NewRecorder()
+
+		http.SetCookie(w, &http.Cookie{Name: "token", Value: "123"})
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Header = http.Header{"Cookie": w.HeaderMap["Set-Cokie"]}
+
+		r.ServeHTTP(w, req)
+	})
+}
+
+func TestSetUserStatusUnauthenticated(t *testing.T) {
+	r := getRouter(false)
+	r.GET("/", setUserStatus(), func(c *gin.Context) {
+		loggedInInterface, exists := c.Get("is_logged_in")
+		if exists && loggedInInterface.(bool) {
+			t.Fail()
+		}
+	})
+
+	w := httptest.NewRecorder()
+
+	req, _ := http.NewRequest("GET", "/", nil)
+
+	r.ServeHTTP(w, req)
 }
