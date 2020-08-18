@@ -1,4 +1,4 @@
-module tesging
+module github.com/giuliobosco/tesging
 
 go 1.14
 
